@@ -1,5 +1,6 @@
 from riotwatcher import LolWatcher, ApiError
 import urllib.request, json
+import urllib.error
 import json
 import config
 import championIds
@@ -36,7 +37,12 @@ def get_puuid (player_name):
     ----------
     Returns the unique puuid of said player
     """
-    return watcher.summoner.by_name(my_region, player_name)['puuid']
+    try:
+        puuid = watcher.summoner.by_name(my_region, player_name)['puuid']
+    except:
+        print("error")
+        return 
+    return puuid
     #pid = watcher.summoner.by_name(my_region, player_name)['puuid']
     #return pid['puuid']
 
@@ -54,6 +60,8 @@ def collect_match_data (player_name):
     Returns a list of the played matches on the current patch
     """
     puuid = get_puuid(player_name) 
+    if puuid == None :
+        return
     match_queue.extend(watcher.match.matchlist_by_puuid(my_region, puuid, type = "ranked"))
     #print (match_queue)
     #print (watcher.match.by_id(my_region, match_queue[0])["info"]["participants"][0]["summonerName"])
@@ -61,8 +69,10 @@ def collect_match_data (player_name):
     #match_queue.pop(0)
     #anaylize_game(match_queue[0])
 
-    while len(match_queue) != 0:
+    while len(match_queue) != 0 and len(game_list) < 100:
         anaylize_game(match_queue[0])
+        if len(match_queue) == 0:
+            break
         match_queue.pop(0)
     
 def anaylize_game (game_id):
@@ -75,7 +85,13 @@ def anaylize_game (game_id):
     ----------
     No return: adds data directly to file
     """
+    if game_id in game_list:
+        return
     game = watcher.match.by_id(my_region, game_id)
+    if get_current_patch()[0:5] != game["info"]["gameVersion"][0:5]:
+        match_queue.clear()
+        return
+    game_list.append(game_id)
     temp = game["info"]
     ban_list = temp["teams"][0]["bans"]
     ban_list.extend(temp["teams"][1]["bans"])
@@ -115,6 +131,7 @@ def anaylize_game (game_id):
     
 def get_challenger():
     return watcher.league.challenger_by_queue(my_region, queue = "RANKED_SOLO_5x5")
+
 def driver():
     #build players queue and list 
     #start the core loop of the program 
@@ -124,18 +141,23 @@ def driver():
     #   on previous patch 
     #       drop all matches on previous patch and move to next person
     starting_set = get_challenger()
-    print(starting_set["entries"][0])
     for player in starting_set['entries']:
         player_list.append(player["summonerName"])
     player_queue = player_list
-    print(player_list)
-
+    i = 0
+    while len(player_queue) != 0 and i < 5: #len(game_list) < 100:
+        collect_match_data(player_queue[0])
+        print(player_queue[0])
+        #print(len(game_list))
+        player_queue.pop(0)
+        i= i + 1
+        
 def main():
     print("Hello World!")
-    collect_match_data("afrodude34")
-    get_current_patch()
-    #driver()
-    print(champ_data)
+    #collect_match_data("afrodude34")
+    #get_current_patch()
+    driver()
+    print(sorted(champ_data.items()))
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,6 @@
 import urllib.request, json
 
-with urllib.request.urlopen("http://ddragon.leagueoflegends.com/cdn/12.15.1/data/en_US/champion.json") as url:
+with urllib.request.urlopen("https://ddragon.leagueoflegends.com/cdn/13.19.1/data/en_US/champion.json") as url:
     champData = json.loads(url.read().decode())
 
 def setUp():
