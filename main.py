@@ -4,6 +4,9 @@ import urllib.error
 import json
 import config
 import championIds
+import asyncio
+import aiohttp
+import time 
 
 api_key = config.lol_api_key
 watcher = LolWatcher(api_key)
@@ -19,13 +22,16 @@ match_queue = []
 # queue of players to be processed
 player_queue = []
 # list of recorded games
-game_list = []
+game_list = set()
 # list of recorded players
-player_list = []
+player_list = set()
 # total games played
 total_games = 0
 # dict of champion data to be added
-champ_data = {"champName" : {"wins": 0, "bans": 0, "gamesPlayed": 0}}
+champ_data = {"champName" : {"wins": 0, "totalbans": 0, "gamesbanned": 0, "gamesPlayed": 0}}
+
+REQUESTS_PER_SECOND = 20  # Adjust this according to your API rate limits
+REQUEST_INTERVAL = 1.0 / REQUESTS_PER_SECOND
 
 def get_puuid (player_name):
     """
@@ -42,6 +48,7 @@ def get_puuid (player_name):
     except:
         print("error")
         return 
+    time.sleep(1.25)
     return puuid
     #pid = watcher.summoner.by_name(my_region, player_name)['puuid']
     #return pid['puuid']
@@ -62,20 +69,23 @@ def collect_match_data (player_name):
     puuid = get_puuid(player_name) 
     if puuid == None :
         return
-    match_queue.extend(watcher.match.matchlist_by_puuid(my_region, puuid, type = "ranked"))
+    match_queue.extend(watcher.match.matchlist_by_puuid(my_region, puuid, type = "ranked",count = 100))
+    #clean match_queue
+    for game in match_queue:
+        if game in game_list:
+            match_queue.remove(game)
+    time.sleep(1.25)
     #print (match_queue)
     #print (watcher.match.by_id(my_region, match_queue[0])["info"]["participants"][0]["summonerName"])
     #anaylize_game(match_queue[0])
     #match_queue.pop(0)
     #anaylize_game(match_queue[0])
-
-    while len(match_queue) != 0 and len(game_list) < 100:
-        anaylize_game(match_queue[0])
-        if len(match_queue) == 0:
-            break
-        match_queue.pop(0)
+    while match_queue:#and len(game_list) < 100:
+        analyze_game(match_queue.pop(0))
+        print(total_games)
+        time.sleep(1.25)
     
-def anaylize_game (game_id):
+def analyze_game (game_id):
     """
     This method will return a list of the game played by said player on the current patch.
     ----------
@@ -87,14 +97,20 @@ def anaylize_game (game_id):
     """
     if game_id in game_list:
         return
-    game = watcher.match.by_id(my_region, game_id)
+    try:
+        game = watcher.match.by_id(my_region, game_id)
+    except:
+        print("error")
+        return
     if get_current_patch()[0:5] != game["info"]["gameVersion"][0:5]:
         match_queue.clear()
+        print("Obadoba")
         return
-    game_list.append(game_id)
+    game_list.add(game_id)
     temp = game["info"]
     ban_list = temp["teams"][0]["bans"]
     ban_list.extend(temp["teams"][1]["bans"])
+
     #loop through each player
     #at the moment print it
     #for participant in temp["participants"]:
@@ -109,7 +125,7 @@ def anaylize_game (game_id):
             champ_name = idToNames[id]
             #print(champ_name)
         if champ_name not in champ_data.keys():
-            champ_data[champ_name] = {"wins": 0, "bans": 0, "gamesPlayed": 0}
+            champ_data[champ_name] = {"wins": 0, "totalbans": 0, "gamesbanned": 0,  "gamesPlayed": 0}
         if participant["win"] == True:
             champ_data[champ_name]["wins"] =  champ_data[champ_name]["wins"] + 1
             champ_data[champ_name]["gamesPlayed"] = champ_data[champ_name]["gamesPlayed"] + 1
@@ -117,6 +133,7 @@ def anaylize_game (game_id):
             champ_data[champ_name]["gamesPlayed"] += 1
     #print(idToNames.keys())
     #ban loop
+    gameBans = set()
     for ban in ban_list:
         id = str(ban["championId"])
         champ_name = ""
@@ -126,8 +143,24 @@ def anaylize_game (game_id):
             champ_name = idToNames[id]
             #print(champ_name)
         if champ_name not in champ_data.keys():
-            champ_data[champ_name] = {"wins": 0, "bans": 0, "gamesPlayed": 0}
-        champ_data[champ_name]["bans"] = champ_data[champ_name]["bans"] + 1
+            champ_data[champ_name] = {"wins": 0, "totalbans": 0, "gamesbanned": 0, "gamesPlayed": 0}
+        champ_data[champ_name]["totalbans"] = champ_data[champ_name]["totalbans"] + 1
+        if champ_name not in gameBans:
+            champ_data[champ_name]["gamesbanned"] = champ_data[champ_name]["gamesbanned"] + 1
+            gameBans.add(champ_name)
+        else:
+            continue
+    increment()
+
+    #add players that might not be in the list
+    for player in game['info']['participants']:
+        if player['summonerName'] not in player_list:
+            player_list.add(player['summonerName'])
+            player_queue.append(player['summonerName'])
+
+def increment():
+    global total_games
+    total_games = total_games+1
     
 def get_challenger():
     return watcher.league.challenger_by_queue(my_region, queue = "RANKED_SOLO_5x5")
@@ -139,25 +172,34 @@ def driver():
     #   60000 game anaylized 
     #conditions to look for 
     #   on previous patch 
-    #       drop all matches on previous patch and move to next person
+    #   drop all matches on previous patch and move to next person
     starting_set = get_challenger()
+    time.sleep(1.25)
     for player in starting_set['entries']:
-        player_list.append(player["summonerName"])
-    player_queue = player_list
-    i = 0
-    while len(player_queue) != 0 and i < 5: #len(game_list) < 100:
+        player_list.add(player["summonerName"])
+    player_queue.extend(player_list)
+    while len(player_queue) != 0 and total_games < 10000: #len(game_list) < 10:
         collect_match_data(player_queue[0])
-        print(player_queue[0])
-        #print(len(game_list))
-        player_queue.pop(0)
-        i= i + 1
+        #print(player_queue[0])
+        player_list.add(player_queue.pop(0))
+        with open('stats.json','w') as f:
+            json_string = json.dumps(sorted(champ_data.items()))
+            f.write(json_string)
         
 def main():
+    print(time.time())
     print("Hello World!")
-    #collect_match_data("afrodude34")
+    #collect_match_data("x minus t")
     #get_current_patch()
     driver()
-    print(sorted(champ_data.items()))
+    #print(sorted(champ_data.items()))
+    with open('stats.json','w') as f:
+        json_string = json.dumps(sorted(champ_data.items()))
+        f.write(json_string)
+    print(len(game_list))
+    print(time.time())
+    
+
 
 if __name__ == "__main__":
     main()
