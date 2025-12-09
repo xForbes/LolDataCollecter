@@ -26,7 +26,9 @@ game_list = set()
 # list of recorded players
 player_list = set()
 # total games played
-total_games = 0
+total_games = set()
+
+game_data = []
 # dict of champion data to be added
 champ_data = {"champName" : {"wins": 0, "totalbans": 0, "gamesbanned": 0, "gamesPlayed": 0}}
 
@@ -73,10 +75,10 @@ def collect_match_data (player_name):
     #clean match_queue
     for game in match_queue:
         if game in game_list:
-            match_queue.remove(game)
+            match_queue.remove(game) 
     time.sleep(1.25)
     #print (match_queue)
-    #print (watcher.match.by_id(my_region, match_queue[0])["info"]["participants"][0]["summonerName"])
+    #print (watcher.match.by_id(my_region, match_queue[0])["info"]["participants"][0]["summonerId"])
     #anaylize_game(match_queue[0])
     #match_queue.pop(0)
     #anaylize_game(match_queue[0])
@@ -114,7 +116,7 @@ def analyze_game (game_id):
     #loop through each player
     #at the moment print it
     #for participant in temp["participants"]:
-        #print(participant["summonerName"] + " " + participant["championName"] + " " + str(participant["championId"]) + " " + str(participant["win"]))
+        #print(participant["summonerId"] + " " + participant["championName"] + " " + str(participant["championId"]) + " " + str(participant["win"]))
     #print(ban_list)
 
     #win/loss loop
@@ -150,13 +152,14 @@ def analyze_game (game_id):
             gameBans.add(champ_name)
         else:
             continue
+    game_data.append(game)
     increment()
 
     #add players that might not be in the list
     for player in game['info']['participants']:
-        if player['summonerName'] not in player_list:
-            player_list.add(player['summonerName'])
-            player_queue.append(player['summonerName'])
+        if player['summonerId'] not in player_list:
+            player_list.add(player['summonerId'])
+            player_queue.append(player['summonerId'])
 
 def increment():
     global total_games
@@ -176,14 +179,14 @@ def driver():
     starting_set = get_challenger()
     time.sleep(1.25)
     for player in starting_set['entries']:
-        player_list.add(player["summonerName"])
+        player_list.add(player["summonerId"])
     player_queue.extend(player_list)
-    while len(player_queue) != 0 and total_games < 10000: #len(game_list) < 10:
+    while len(player_queue) != 0 and len(total_games) < 10: #len(game_list) < 10:
         collect_match_data(player_queue[0])
         #print(player_queue[0])
         player_list.add(player_queue.pop(0))
         with open('stats.json','w') as f:
-            json_string = json.dumps(sorted(champ_data.items()))
+            json_string = json.dumps(sorted(game_data))
             f.write(json_string)
         
 def main():
@@ -194,7 +197,7 @@ def main():
     driver()
     #print(sorted(champ_data.items()))
     with open('stats.json','w') as f:
-        json_string = json.dumps(sorted(champ_data.items()))
+        json_string = json.dumps(sorted(game_data))
         f.write(json_string)
     print(len(game_list))
     print(time.time())
@@ -205,7 +208,7 @@ if __name__ == "__main__":
     main()
 
 #print(watcher.match.by_id(my_region, to_enqueue[0])["metadata"]["participants"][0])
-    #print(watcher.match.by_id(my_region, match_queue[0])["info"]["participants"][0]["summonerName"])
+    #print(watcher.match.by_id(my_region, match_queue[0])["info"]["participants"][0]["summonerId"])
     #temp = watcher.match.by_id(my_region, match_queue[0])["info"]["participants"]
     #for participant in temp:
-    #    print(participant["summonerName"])
+    #    print(participant["summonerId"])
